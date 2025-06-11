@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<title>シューティングゲーム</title>
+<link rel="stylesheet" href="style.css">
+</head>
+
+<div id="game">
+	<img src="fighter.gif" id="fighter">
+	<div id="score">Score: 0</div>
+</div>
+<div id="result" style="display:none;">
+  <div id="result-text"></div>
+  <button id="retry">リトライ</button>
+</div>
+<script src="jquery.js"></script>
+<script type="text/javascript">
+let keyState = {};
+$(document).keydown(function(e) {
+	keyState[e.keyCode] = true;
+});
+$(document).keyup(function(e) {
+	keyState[e.keyCode] = false;
+});
+$(document).on("click", "#retry", function(){
+    location.reload();
+});
+
+$(function(){
+	const GAME_WIDTH = 640;
+	const GAME_HEIGHT = 480;
+	const PLAYER_WIDTH = 25;
+	const ENEMY_WIDTH = 32;
+	const ENEMY_HEIGHT = 32;
+	const BEAM_OFFSET_X = 12;
+	const BEAM_START_Y = 120;
+	const ENEMY_MOVE_LIMIT = GAME_WIDTH - ENEMY_WIDTH;
+	const BEAM_LIMIT = 3;
+	let lastShotTime = 0;
+	const SHOT_COOLDOWN = 200; // 連射制限（200ms = 0.2秒）
+	let enemyBeams = [];
+	const ENEMY_BEAM_SPEED = 4;
+	const ENEMY_SHOOT_INTERVAL = 60; // 2秒ごとに1発（30fps × 2）
+	let shootTimer = 0;
+	let beams = [];
+	const enemyImages = ["enemy_red.gif", "enemy_blue.gif", "enemy_green.gif"];
+	let fx=300, fy=400, fmovex=5;
+	let bx=0, by=-50, bmovey=10;
+	let count = 0;
+	const ENEMY_COUNT = 3;
+	let enemies = [];
+
+	for (let i = 0; i < ENEMY_COUNT; i++) {
+		let id = "enemy" + i;
+		let img = enemyImages[Math.floor(Math.random() * enemyImages.length)];
+		$("#game").append(`<img src="${img}" id="${id}" class="enemy">`);
+		enemies.push({
+			id: "#" + id,
+			x: i * 50,
+			y: 0,
+			dx: 2 + i,
+			dy: 10
+		});
+	}
+
+	const c = setInterval(game, 30);
+
+	function game(){
+
+		// 自機の移動処理
+		if (keyState[37] && fx > 0) { fx -= fmovex; } // 左
+		if (keyState[38] && fy > 0) { fy -= fmovex; } // 上
+		if (keyState[39] && fx <= GAME_WIDTH - 32) { fx += fmovex; } // 右
+		if (keyState[40] && fy <= GAME_HEIGHT - 32) { fy += fmovex; } // 下
+
+		// ビーム発射処理（押しっぱなし対応）
+		if (keyState[90]) { // Xキー
+			let now = Date.now();
+			if (now - lastShotTime > SHOT_COOLDOWN && beams.length < BEAM_LIMIT) {
+				let id = "beam" + now;
+				$("#game").append(`<img src="beam.gif" id="${id}" class="beam">`);
+				beams.push({
+					id: "#" + id,
+					x: fx + BEAM_OFFSET_X,
+					y: fy
+				});
+				lastShotTime = now;
+			}
+		}
+
+		// ビームの処理（複数対応）
+		beams = beams.filter(function(b){
+			b.y -= bmovey;
+
+			// CSS反映
+			$(b.id).css({ left: b.x, top: b.y });
+
+			// 画面外に出たら削除
+			if (b.y < -32) {
+				$(b.id).remove();
+				return false;
+			}
+			return true;
+		});
+
+		enemies.forEach(function(e){
+			// 移動
+			e.x += e.dx;
+
+			// 折り返し
+			if(e.x >= ENEMY_MOVE_LIMIT){
+				e.dx = -2 - count;
+				e.y += e.dy;
+			}
+			if(e.x < 0){
+				e.dx = 2 + count;
+				e.y += e.dy;
+			}
+			// 敵が画面下に到達したら復活させる
+			if (e.y > GAME_HEIGHT - ENEMY_HEIGHT) {
+				e.x = Math.random() * (GAME_WIDTH - ENEMY_WIDTH); // 横位置ランダム
+				e.y = 0;
+				e.dx = 2 + count;
+
+				let newImg = enemyImages[Math.floor(Math.random() * enemyImages.length)];
+				$(e.id).attr("src", newImg);
+			}
+
+
+
+			shootTimer++;
+			if (shootTimer >= ENEMY_SHOOT_INTERVAL) {
+				shootTimer = 0;
+
+				// ランダムな敵1体から弾を撃つ
+				let shooter = enemies[Math.floor(Math.random() * enemies.length)];
+				let id = "enemybeam" + Date.now();
+				$("#game").append(`<div class="enemybeam" id="${id}"></div>`);
+				enemyBeams.push({
+					id: "#" + id,
+					x: shooter.x + ENEMY_WIDTH / 2 - 3, // 弾の中心を敵の中央に
+					y: shooter.y + ENEMY_HEIGHT
+				});
+			}
+
+			beams.forEach(function(b, bi){
+				if (e.x < b.x && e.x + ENEMY_WIDTH > b.x && e.y < b.y && e.y + ENEMY_HEIGHT > b.y) {
+					count++;
+					$("#score").text("Score: " + count);
+					e.x = 0; e.y = 0;
+					e.dx = 2 + count;
+					
+					let newImg = enemyImages[Math.floor(Math.random() * enemyImages.length)];
+					$(e.id).attr("src", newImg);
+					// ビームを削除
+					$(b.id).remove();
+					beams.splice(bi, 1);
+				}
+			});
+
+			// 当たり判定（敵と自機）
+			if(e.x < fx + PLAYER_WIDTH && e.x + PLAYER_WIDTH > fx && e.y < fy + PLAYER_WIDTH && e.y + PLAYER_WIDTH > fy){
+                $("#fighter").attr("src", "crash.gif");
+                $("#result-text").html("撃墜されました<br>敵を" + count + "体撃破しました");
+                $("#result").show();
+                clearInterval(c);
+			}
+
+			// CSS反映
+			$(e.id).css({ left: e.x, top: e.y });
+		});
+		enemyBeams = enemyBeams.filter(function(b){
+			b.y += ENEMY_BEAM_SPEED;
+			$(b.id).css({ left: b.x, top: b.y });
+
+			// 自機との当たり判定
+			if (b.x < fx + PLAYER_WIDTH &&
+				b.x + 6 > fx &&
+				b.y < fy + 32 &&
+				b.y + 16 > fy) {
+                $("#fighter").attr("src", "crash.gif");
+                $("#result-text").html("撃墜されました<br>敵を" + count + "体撃破しました");
+                $("#result").show();
+                clearInterval(c);
+			}
+
+			// 画面外に出たら削除
+			if (b.y > GAME_HEIGHT) {
+				$(b.id).remove();
+				return false;
+			}
+			return true;
+		});
+
+		// CSS反映
+		$("#fighter").css({ left: fx, top: fy });
+	}
+});
+</script>
+</html>
